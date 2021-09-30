@@ -1,0 +1,418 @@
+﻿<?xml version="1.0" encoding="utf-8"?><ManagementPack ContentReadable="true" SchemaVersion="2.0" OriginalSchemaVersion="1.0" xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">
+  <Manifest>
+    <Identity>
+      <ID>Microsoft.SystemCenter.ACS.Addendum</ID>
+      <Version>1.0.0.12</Version>
+    </Identity>
+    <Name>Microsoft SystemCenter ACS Addendum</Name>
+    <References>
+      <Reference Alias="Windows">
+        <ID>Microsoft.Windows.Library</ID>
+        <Version>6.1.7221.0</Version>
+        <PublicKeyToken>31bf3856ad364e35</PublicKeyToken>
+      </Reference>
+      <Reference Alias="MSIL">
+        <ID>Microsoft.SystemCenter.InstanceGroup.Library</ID>
+        <Version>6.1.7221.0</Version>
+        <PublicKeyToken>31bf3856ad364e35</PublicKeyToken>
+      </Reference>
+      <Reference Alias="System">
+        <ID>System.Library</ID>
+        <Version>6.1.7221.0</Version>
+        <PublicKeyToken>31bf3856ad364e35</PublicKeyToken>
+      </Reference>
+      <Reference Alias="SC">
+        <ID>Microsoft.SystemCenter.Library</ID>
+        <Version>6.1.7221.0</Version>
+        <PublicKeyToken>31bf3856ad364e35</PublicKeyToken>
+      </Reference>
+      <Reference Alias="Health">
+        <ID>System.Health.Library</ID>
+        <Version>6.1.7221.0</Version>
+        <PublicKeyToken>31bf3856ad364e35</PublicKeyToken>
+      </Reference>
+      <Reference Alias="ACS">
+        <ID>Microsoft.SystemCenter.ACS.Internal</ID>
+        <Version>6.1.7221.0</Version>
+        <PublicKeyToken>31bf3856ad364e35</PublicKeyToken>
+      </Reference>
+    </References>
+  </Manifest>
+  <TypeDefinitions>
+    <EntityTypes>
+      <ClassTypes>
+        <ClassType ID="Microsoft.SystemCenter.ACS.Addendum.Forwarder.Computer.Group" Accessibility="Internal" Abstract="false" Base="MSIL!Microsoft.SystemCenter.InstanceGroup" Hosted="false" Singleton="true" Extension="false" />
+        <ClassType ID="Microsoft.SystemCenter.ACS.Addendum.Forwarder" Accessibility="Public" Abstract="false" Base="ACS!Microsoft.SystemCenter.ACS.Forwarder" Hosted="true" Singleton="false" Extension="false">
+          <Property ID="Collector" Type="string" AutoIncrement="false" Key="false" CaseSensitive="false" MaxLength="256" MinLength="0" Required="false" Scale="0" />
+        </ClassType>
+      </ClassTypes>
+    </EntityTypes>
+	<ModuleTypes>
+	  <WriteActionModuleType ID="Microsoft.SystemCenter.ACS.Addendum.DisableACSAction" Accessibility="Internal" Batching="false">
+        <Configuration />
+        <ModuleImplementation Isolation="Any">
+          <Composite>
+            <MemberModules>
+              <WriteAction ID="DisableACS" TypeID="System!System.CommandExecuter">
+                <ApplicationName>%windir%\system32\cscript.exe</ApplicationName>
+                <WorkingDirectory />
+                <CommandLine>//NoLogo $File/DisableACSAction.vbs$</CommandLine>
+                <TimeoutSeconds>30</TimeoutSeconds>
+                <RequireOutput>true</RequireOutput>
+                <Files>
+                  <File>
+                    <Name>DisableACSAction.vbs</Name>
+                    <Contents>
+
+strComputer = "."
+
+Set oRegistry = GetObject("winmgmts:\\" &amp; strComputer &amp; "\root\default:StdRegProv")
+Set oSWbemServices = GetObject("winmgmts:{impersonationLevel=impersonate}\\" &amp; strComputer &amp; "\root\cimv2")
+REM The {impersonationLevel=impersonate} clause might not be necessary when running as LocalSystem
+
+set oService = oSWbemServices.Get("Win32_Service.Name='AdtAgent'")
+
+returnCode = oService.Change(,,,,"Disabled")
+WScript.Echo "Service change return code: " &amp; returnCode
+
+returnCode = oService.StopService()
+WScript.Echo "Service stop return code: " &amp; returnCode
+
+                                        </Contents>
+                  </File>
+                </Files>
+              </WriteAction>
+            </MemberModules>
+            <Composition>
+              <Node ID="DisableACS" />
+            </Composition>
+          </Composite>
+        </ModuleImplementation>
+        <InputType>System!System.BaseData</InputType>
+      </WriteActionModuleType>
+      <WriteActionModuleType ID="Microsoft.SystemCenter.ACS.Addendum.EnableACSAction" Accessibility="Internal" Batching="false">
+        <Configuration>
+          <xsd:element name="CollectorServer" type="xsd:string" xmlns:xsd="http://www.w3.org/2001/XMLSchema" />
+          <xsd:element name="TargetComputerName" type="xsd:string" xmlns:xsd="http://www.w3.org/2001/XMLSchema" />
+        </Configuration>
+        <OverrideableParameters>
+          <OverrideableParameter ID="CollectorServer" Selector="$Config/CollectorServer$" ParameterType="string" />
+        </OverrideableParameters>
+        <ModuleImplementation Isolation="Any">
+          <Composite>
+            <MemberModules>
+              <WriteAction ID="EnableACS" TypeID="System!System.CommandExecuter">
+                <ApplicationName>%windir%\system32\cscript.exe</ApplicationName>
+                <WorkingDirectory />
+                <CommandLine>//NoLogo $File/EnableACSAction.vbs$ "$Config/CollectorServer$" "$Target/ManagementGroup/Name$" "$Config/TargetComputerName$"</CommandLine>
+                <TimeoutSeconds>90</TimeoutSeconds>
+                <RequireOutput>true</RequireOutput>
+                <Files>
+                  <File>
+                    <Name>EnableACSAction.vbs</Name>
+                    <Contents>
+
+Const HKEY_LOCAL_MACHINE = &amp;H80000002
+
+Set args = WScript.Arguments
+strCollectorServer      = args.Item(0)
+strClientAgentGroup     = args.Item(1)
+strTargetComputerName	= args.Item(2)
+
+
+WScript.Echo "Agent Management Group: " &amp; strClientAgentGroup
+
+strComputer = "."
+strValue = ""
+
+strACSKeyPath = "SOFTWARE\Policies\Microsoft\AdtAgent\Parameters"
+strMOMKeyPath = "SOFTWARE\Microsoft\Microsoft Operations Manager\3.0\Agent Management Groups\" &amp; strClientAgentGroup &amp; "\Parent Health Services\0"
+
+Set oRegistry = GetObject("winmgmts:\\" &amp; strComputer &amp; "\root\default:StdRegProv")
+
+Set oSWbemServices = GetObject("winmgmts:{impersonationLevel=impersonate}\\" &amp; strComputer &amp; "\root\cimv2")
+
+REM The {impersonationLevel=impersonate} clause might not be necessary when running as LocalSystem
+
+strValueName = "LocalConfig"
+oRegistry.SetDWORDValue HKEY_LOCAL_MACHINE,strACSKeyPath,strValueName,1
+
+strValueName = "NoCache"
+oRegistry.SetDWORDValue HKEY_LOCAL_MACHINE,strACSKeyPath,strValueName,1
+
+if ((strCollectorServer = "[Collector Server]") OR (strCollectorServer = "")) then
+    strValueName = "NetworkName"
+    returnCode = oRegistry.GetStringValue(HKEY_LOCAL_MACHINE,strMOMKeyPath,strValueName,Value)
+
+    if (returnCode = 2) then
+      Value = strTargetComputerName
+    end if
+
+    strValueName = "AdtServers"
+    returnCode = oRegistry.CreateKey(HKEY_LOCAL_MACHINE,strACSKeyPath)
+    returnCode = oRegistry.SetMultiStringValue(HKEY_LOCAL_MACHINE,strACSKeyPath,strValueName,Array(Value))
+else
+    strValueName = "AdtServers"
+    arrayCollectorServers = Split(strCollectorServer, ",", -1, 1)
+    For item = 0 to UBound(arrayCollectorServers)
+        arrayCollectorServers(item) = Trim(arrayCollectorServers(item))
+    Next
+    returnCode = oRegistry.CreateKey(HKEY_LOCAL_MACHINE,strACSKeyPath)
+    returnCode = oRegistry.SetMultiStringValue(HKEY_LOCAL_MACHINE,strACSKeyPath,strValueName,arrayCollectorServers)
+end if
+
+set oService = oSWbemServices.Get("Win32_Service.Name='AdtAgent'")
+
+returnCode = oService.Change(,,,,"Automatic")
+WScript.Echo "Service change return code: " &amp; returnCode
+
+stoppedCorrectly = TRUE
+
+if (oService.Started) then
+    REM we need to stop the service so it can pick up the registry changes
+    
+    WScript.Echo "Stopping service so it can pick up changes"
+    returnCode = oService.StopService()
+    
+    if (NOT returnCode = 0) then
+        WScript.Echo "Service stop error code: " &amp; returnCode
+        stoppedCorrectly = FALSE
+    else
+        Counter = 6
+    
+        do while (Counter &gt; 0)
+            Counter = Counter - 1
+            returnCode = oService.InterrogateService()
+            if (returnCode = 6) then
+                REM
+                REM 6 means Service Not Active
+                REM
+                
+                stoppedCorrectly = TRUE
+                exit do
+            elseif (NOT returnCode = 0) then
+                WScript.Echo "InterrogateService return code: " &amp; returnCode
+            end if
+            WScript.Sleep(10000)
+        loop
+        
+        if (stoppedCorrectly) then
+            WScript.Echo "Service stopped correctly"
+        else
+            WScript.Echo "Unable to stop Service in 60 seconds"
+            WScript.Echo "You should manually stop and start the AdtAgent service on the target machine"
+        end if
+    end if
+end if
+
+if (stoppedCorrectly) then
+    WScript.Echo "Starting service"
+    returnCode = oService.StartService()
+
+    if (NOT returnCode = 0) then
+        WScript.Echo "Service was not started correctly"
+        WScript.Echo "Service start error code: " &amp; returnCode
+    else
+        WScript.Echo "Service started correctly"
+    end if
+end if
+                                        </Contents>
+                  </File>
+                </Files>
+              </WriteAction>
+            </MemberModules>
+            <Composition>
+              <Node ID="EnableACS" />
+            </Composition>
+          </Composite>
+        </ModuleImplementation>
+        <InputType>System!System.BaseData</InputType>
+      </WriteActionModuleType>
+    </ModuleTypes>	
+  </TypeDefinitions>
+  <Monitoring>
+    <Discoveries>
+      <Discovery ID="Microsoft.SystemCenter.ACS.Addendum.Forwarder.Computer.Group.Discovery" Enabled="true" Target="Microsoft.SystemCenter.ACS.Addendum.Forwarder.Computer.Group" ConfirmDelivery="true" Remotable="true" Priority="Normal">
+        <Category>Discovery</Category>
+        <DiscoveryTypes>
+          <DiscoveryRelationship TypeID="MSIL!Microsoft.SystemCenter.InstanceGroupContainsEntities" />
+        </DiscoveryTypes>
+        <DataSource ID="groupPopulator" TypeID="SC!Microsoft.SystemCenter.GroupPopulator">
+          <RuleId>$MPElement$</RuleId>
+          <GroupInstanceId>$MPElement[Name="Microsoft.SystemCenter.ACS.Addendum.Forwarder.Computer.Group"]$</GroupInstanceId>
+          <MembershipRules>
+            <MembershipRule>
+              <MonitoringClass>$MPElement[Name="Windows!Microsoft.Windows.Computer"]$</MonitoringClass>
+              <RelationshipClass>$MPElement[Name="MSIL!Microsoft.SystemCenter.InstanceGroupContainsEntities"]$</RelationshipClass>
+              <Expression>
+                <Contains>
+                  <MonitoringClass>$MPElement[Name="Microsoft.SystemCenter.ACS.Addendum.Forwarder"]$</MonitoringClass>
+                </Contains>
+              </Expression>
+            </MembershipRule>
+          </MembershipRules>
+        </DataSource>
+      </Discovery>
+      <Discovery ID="Microsoft.SystemCenter.ACS.Addendum.Forwarder.Discovery" Enabled="true" Target="Windows!Microsoft.Windows.OperatingSystem" ConfirmDelivery="false" Remotable="false" Priority="Normal">
+        <Category>Discovery</Category>
+        <DiscoveryTypes>
+          <DiscoveryClass TypeID="Microsoft.SystemCenter.ACS.Addendum.Forwarder">
+            <Property TypeID="Microsoft.SystemCenter.ACS.Addendum.Forwarder" PropertyID="Collector" />
+          </DiscoveryClass>
+        </DiscoveryTypes>
+        <DataSource ID="Microsoft.SystemCenter.ACS.Addendum.Forwarder.RegistryDiscoveryDS" TypeID="Windows!Microsoft.Windows.FilteredRegistryDiscoveryProvider">
+          <ComputerName>$Target/Host/Property[Type="Windows!Microsoft.Windows.Computer"]/NetworkName$</ComputerName>
+          <RegistryAttributeDefinitions>
+            <RegistryAttributeDefinition>
+              <AttributeName>ACSCollectionServer</AttributeName>
+              <Path>Software\Policies\Microsoft\AdtAgent\Parameters\AdtServers</Path>
+              <PathType>1</PathType>
+              <AttributeType>1</AttributeType>
+            </RegistryAttributeDefinition>
+            <RegistryAttributeDefinition>
+              <AttributeName>ACSEnabled</AttributeName>
+              <Path>SYSTEM\CurrentControlSet\Services\AdtAgent\Start</Path>
+              <PathType>1</PathType>
+              <AttributeType>2</AttributeType>
+            </RegistryAttributeDefinition>
+          </RegistryAttributeDefinitions>
+          <Frequency>14400</Frequency>
+          <ClassId>$MPElement[Name="Microsoft.SystemCenter.ACS.Addendum.Forwarder"]$</ClassId>
+          <InstanceSettings>
+            <Settings>
+              <Setting>
+                <Name>$MPElement[Name="Microsoft.SystemCenter.ACS.Addendum.Forwarder"]/Collector$</Name>
+                <Value>$Data/Values/ACSCollectionServer$</Value>
+              </Setting>
+              <Setting>
+                <Name>$MPElement[Name="Windows!Microsoft.Windows.Computer"]/PrincipalName$</Name>
+                <Value>$Target/Host/Property[Type="Windows!Microsoft.Windows.Computer"]/PrincipalName$</Value>
+              </Setting>
+            </Settings>
+          </InstanceSettings>
+          <Expression>
+            <SimpleExpression>
+              <ValueExpression>
+                <XPathQuery>Values/ACSEnabled</XPathQuery>
+              </ValueExpression>
+              <Operator>Equal</Operator>
+              <ValueExpression>
+                <Value>2</Value>
+              </ValueExpression>
+            </SimpleExpression>
+          </Expression>
+        </DataSource>
+      </Discovery>
+    </Discoveries>
+    <Tasks>
+      <Task ID="Microsoft.SystemCenter.ACS.Addendum.DisableAuditCollectionService" Accessibility="Internal" Enabled="true" Target="Microsoft.SystemCenter.ACS.Addendum.Forwarder" Timeout="300" Remotable="true">
+        <Category>Maintenance</Category>
+        <WriteAction ID="SCAction" RunAs="System!System.PrivilegedMonitoringAccount" TypeID="Microsoft.SystemCenter.ACS.Addendum.DisableACSAction" />
+      </Task>
+      <Task ID="Microsoft.SystemCenter.ACS.Addendum.EnableAuditCollectionService" Accessibility="Internal" Enabled="true" Target="Microsoft.SystemCenter.ACS.Addendum.Forwarder" Timeout="300" Remotable="true">
+        <Category>Maintenance</Category>
+        <WriteAction ID="SCAction" RunAs="System!System.PrivilegedMonitoringAccount" TypeID="Microsoft.SystemCenter.ACS.Addendum.EnableACSAction">
+          <CollectorServer>[Collector Server]</CollectorServer>
+          <TargetComputerName>$Target/Host/Property[Type="Windows!Microsoft.Windows.Computer"]/NetworkName$</TargetComputerName>
+        </WriteAction>
+      </Task>
+      <Task ID="Microsoft.SystemCenter.ACS.Addendum.StartACSServiceTask" Accessibility="Internal" Enabled="true" Target="Microsoft.SystemCenter.ACS.Addendum.Forwarder" Timeout="300" Remotable="false">
+        <Category>Maintenance</Category>
+        <WriteAction ID="WA" TypeID="System!System.CommandExecuter">
+          <ApplicationName />
+          <WorkingDirectory />
+          <CommandLine>net start AdtAgent</CommandLine>
+          <TimeoutSeconds>60</TimeoutSeconds>
+          <RequireOutput>true</RequireOutput>
+          <Files />
+        </WriteAction>
+      </Task>	  
+    </Tasks>
+  </Monitoring>
+  <Presentation>
+    <Views>
+      <View ID="Microsoft.SystemCenter.ACS.Addendum.Forwarder.State.View" Accessibility="Public" Enabled="true" Target="Microsoft.SystemCenter.ACS.Addendum.Forwarder" TypeID="SC!Microsoft.SystemCenter.StateViewType" Visible="true">
+        <Category>Operations</Category>
+        <Criteria>
+          <InMaintenanceMode>false</InMaintenanceMode>
+        </Criteria>
+        <Presentation>
+          <ColumnInfo Index="1" SortIndex="0" Width="100" Grouped="false" Sorted="true" IsSortable="true" Visible="true" SortOrder="Descending">
+            <Name>State</Name>
+            <Id>Microsoft.SystemCenter.ACS.Addendum.Forwarder-*-5e471353-1062-86cc-ff7d-919d6c6e603a-*-Health</Id>
+          </ColumnInfo>
+          <ColumnInfo Index="0" SortIndex="-1" Width="100" Grouped="false" Sorted="false" IsSortable="true" Visible="true" SortOrder="Ascending">
+            <Name>Maintenance Mode</Name>
+            <Id>InMaintenanceMode</Id>
+          </ColumnInfo>
+          <ColumnInfo Index="2" SortIndex="-1" Width="100" Grouped="false" Sorted="false" IsSortable="true" Visible="false" SortOrder="Ascending">
+            <Name>Name</Name>
+            <Id>Name</Id>
+          </ColumnInfo>
+          <ColumnInfo Index="3" SortIndex="-1" Width="100" Grouped="false" Sorted="false" IsSortable="true" Visible="true" SortOrder="Ascending">
+            <Name>Path</Name>
+            <Id>Path</Id>
+          </ColumnInfo>
+          <ColumnInfo Index="4" SortIndex="-1" Width="100" Grouped="false" Sorted="false" IsSortable="true" Visible="false" SortOrder="Ascending">
+            <Name>Display Name</Name>
+            <Id>System.Entity/DisplayName</Id>
+          </ColumnInfo>
+          <ColumnInfo Index="5" SortIndex="-1" Width="100" Grouped="false" Sorted="false" IsSortable="true" Visible="true" SortOrder="Ascending">
+            <Name>ACS Collector</Name>
+            <Id>Microsoft.SystemCenter.ACS.Addendum.Forwarder/Collector</Id>
+          </ColumnInfo>
+        </Presentation>
+        <Target />
+      </View>
+    </Views>
+    <Folders>
+      <Folder ID="Microsoft.SystemCenter.ACS.Addendum.Root.Folder" Accessibility="Public" ParentFolder="SC!Microsoft.SystemCenter.Monitoring.ViewFolder.Root" />
+    </Folders>
+    <FolderItems>
+      <FolderItem ElementID="Microsoft.SystemCenter.ACS.Addendum.Forwarder.State.View" ID="Microsoft.SystemCenter.ACS.Addendum.Forwarder.State.View.FolderItem" Folder="Microsoft.SystemCenter.ACS.Addendum.Root.Folder" />
+    </FolderItems>
+  </Presentation>
+  <LanguagePacks>
+    <LanguagePack ID="ENU" IsDefault="true">
+      <DisplayStrings>
+        <DisplayString ElementID="Microsoft.SystemCenter.ACS.Addendum">
+          <Name>Microsoft SystemCenter ACS Addendum</Name>
+        </DisplayString>
+        <DisplayString ElementID="Microsoft.SystemCenter.ACS.Addendum.Forwarder.Computer.Group">
+          <Name>ACS Forwarder Computers Group</Name>
+        </DisplayString>
+        <DisplayString ElementID="Microsoft.SystemCenter.ACS.Addendum.Forwarder.Computer.Group.Discovery">
+          <Name>ACS Forwarder Computers Group Discovery</Name>
+        </DisplayString>
+        <DisplayString ElementID="Microsoft.SystemCenter.ACS.Addendum.Root.Folder">
+          <Name>Microsoft Audit Collection Services Addendum</Name>
+        </DisplayString>
+        <DisplayString ElementID="Microsoft.SystemCenter.ACS.Addendum.Forwarder">
+          <Name>ACS Forwarder</Name>
+        </DisplayString>
+        <DisplayString ElementID="Microsoft.SystemCenter.ACS.Addendum.Forwarder" SubElementID="Collector">
+          <Name>ACS Collector</Name>
+        </DisplayString>
+        <DisplayString ElementID="Microsoft.SystemCenter.ACS.Addendum.Forwarder.Discovery">
+          <Name>ACS Forwarder Discovery</Name>
+        </DisplayString>
+        <DisplayString ElementID="Microsoft.SystemCenter.ACS.Addendum.Forwarder.State.View">
+          <Name>ACS Forwarders</Name>
+          <Description />
+        </DisplayString>
+        <DisplayString ElementID="Microsoft.SystemCenter.ACS.Addendum.EnableAuditCollectionService">
+          <Name>Enable Audit Collection Task</Name>
+          <Description>Enables and configures the Audit Collection Service on the appropriate Operations Manager Health Service.</Description>
+        </DisplayString>
+        <DisplayString ElementID="Microsoft.SystemCenter.ACS.Addendum.DisableAuditCollectionService">
+          <Name>Disable Audit Collection Task</Name>
+          <Description>Stops and disables the Audit Collection Service on the appropriate Operations Manager Health Service.</Description>
+        </DisplayString>	
+        <DisplayString ElementID="Microsoft.SystemCenter.ACS.Addendum.StartACSServiceTask">
+          <Name>Start Audit Forwarder Service</Name>
+          <Description>Starts the Audit Forwarder Service via NET START</Description>
+        </DisplayString>		
+      </DisplayStrings>
+    </LanguagePack>
+  </LanguagePacks>
+</ManagementPack>
